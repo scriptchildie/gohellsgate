@@ -1,4 +1,4 @@
-package hellsgate
+package gohellsgate
 
 import (
 	"fmt"
