@@ -57,6 +57,7 @@ func GetSyscallNoFromName(function string, exports *[]exportfunc) (byte, error) 
 	return 0x0, fmt.Errorf("Unable to find Syscall Function")
 }
 
+// Beta Version, This needs a lot of testing. I only tested this on win11 x64 and limited AVs
 func UnhookSyscalls(exports *[]exportfunc) error {
 	var lastGood byte
 	lastGood = 0x0
