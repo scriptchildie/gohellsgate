@@ -14,7 +14,7 @@ type dllstruct struct {
 	address uintptr
 }
 
-type exportfunc struct {
+type Exportfunc struct {
 	funcRVA   uint32
 	nameRVA   uint32
 	name      string
@@ -48,7 +48,7 @@ func Syscall(callid uint16, argh ...uintptr) (errcode uint32, err error) {
 // Syscall calls the system function specified by callid with n arguments. Works much the same as syscall.Syscall - return value is the call error code and optional error text. All args are uintptrs to make it easy.
 func bpSyscall(callid uint16, argh ...uintptr) (errcode uint32)
 
-func GetSyscallNoFromName(function string, exports *[]exportfunc) (byte, error) {
+func GetSyscallNoFromName(function string, exports *[]Exportfunc) (byte, error) {
 	for _, exFunc := range *exports {
 		if function == exFunc.name {
 			return exFunc.syscallno, nil
@@ -58,7 +58,7 @@ func GetSyscallNoFromName(function string, exports *[]exportfunc) (byte, error) 
 }
 
 // Beta Version, This needs a lot of testing. I only tested this on win11 x64 and limited AVs
-func UnhookSyscalls(exports *[]exportfunc) error {
+func UnhookSyscalls(exports *[]Exportfunc) error {
 	var lastGood byte
 	lastGood = 0x0
 	for i, exFunc := range *exports {
@@ -79,7 +79,7 @@ func UnhookSyscalls(exports *[]exportfunc) error {
 	return nil
 }
 
-func GetSyscallNumbers(exports *[]exportfunc) error {
+func GetSyscallNumbers(exports *[]Exportfunc) error {
 	baddr, err := GetBaseAddrOfLoadedDll("ntdll.dll")
 	if err != nil {
 		return err
@@ -109,7 +109,7 @@ func GetSyscallNumbers(exports *[]exportfunc) error {
 
 // Loops through the exports and returns it into a slice
 // Any future queries or any unhooking will be happening on the slice and not the dll itself
-func GetModuleExports(name string) ([]exportfunc, error) {
+func GetModuleExports(name string) ([]Exportfunc, error) {
 
 	exp, err := GetImageExportDirectory(name)
 	if err != nil {
@@ -119,7 +119,7 @@ func GetModuleExports(name string) ([]exportfunc, error) {
 	if err != nil {
 		return nil, err
 	}
-	funcSlice := []exportfunc{}
+	funcSlice := []Exportfunc{}
 	for i := 0; i < int(exp.NumberOfNames); i++ {
 		funcRVA := *((*uint32)(unsafe.Pointer(baddr + (uintptr(exp.AddressOfFunctions) + uintptr((i+1)*0x4)))))
 		nameRVA := *((*uint32)(unsafe.Pointer(baddr + (uintptr(exp.AddressOfNames) + uintptr(i*0x4)))))
@@ -128,7 +128,7 @@ func GetModuleExports(name string) ([]exportfunc, error) {
 		name := windows.BytePtrToString(&nameRVAbyte[0])
 
 		if strings.HasPrefix(name, "Nt") { // || strings.HasPrefix(name, "Zw") <= Might use this to compare /unhook the NT functions
-			funcSlice = append(funcSlice, exportfunc{
+			funcSlice = append(funcSlice, Exportfunc{
 				funcRVA: funcRVA,
 				nameRVA: nameRVA,
 				name:    name,
