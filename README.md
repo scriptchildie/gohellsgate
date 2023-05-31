@@ -2,7 +2,7 @@
 
 A pure golang implementation of hellsgate. 
 
-This library allows for both direct and indrect syscalls in golang. 
+This library allows for both direct and indirect syscalls in golang. 
 
 This is the best document out there to understand the technique https://github.com/am0nsec/HellsGate/blob/master/hells-gate.pdf
 
