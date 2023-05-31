@@ -1,6 +1,7 @@
+
 //based on https://golang.org/src/runtime/sys_windows_amd64.s
 // taken from https://github.com/C-Sto/BananaPhone/blob/916e63b713df4c296464d75050490581d192cf13/pkg/BananaPhone/asm_x64.s
-
+#include "textflag.h"
 #define maxargs 16
 //func Syscall(callid uint16, argh ...uintptr) (uint32, error)
 TEXT ·bpSyscall(SB), $0-56
@@ -51,3 +52,4 @@ loadregs:
 	POPQ	CX
 	MOVL	AX, errcode+32(FP)
 	RET
+

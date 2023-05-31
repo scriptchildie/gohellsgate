@@ -15,10 +15,11 @@ type dllstruct struct {
 }
 
 type Exportfunc struct {
-	funcRVA   uint32
-	nameRVA   uint32
-	name      string
-	syscallno byte
+	funcRVA    uint32
+	nameRVA    uint32
+	name       string
+	syscallno  byte
+	tramboline uintptr
 }
 
 type IMAGE_EXPORT_DIRECTORY struct { //offsets
@@ -35,9 +36,47 @@ type IMAGE_EXPORT_DIRECTORY struct { //offsets
 	AddressOfNameOrdinals uint32 // 0x24
 }
 
+var exports []Exportfunc
+
+func getSyscalls() (err error) {
+
+	exports, err = GetModuleExports("ntdll.dll")
+	if err != nil {
+		return fmt.Errorf("Failed to get Exports: %v", err)
+	}
+	GetSyscallNumbers(&exports)
+	UnhookSyscalls(&exports)
+	return nil
+
+}
+
+func checkExports(verbose bool) error {
+	if len(exports) == 0 {
+
+		if verbose {
+			fmt.Println("[!] Unable to find syscalls table. Resolving syscalls and Generating table...")
+		}
+		err := getSyscalls()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Syscall calls the system function specified by callid with n arguments. Works much the same as syscall.Syscall - return value is the call error code and optional error text. All args are uintptrs to make it easy.
-func Syscall(callid uint16, argh ...uintptr) (errcode uint32, err error) {
-	errcode = bpSyscall(callid, argh...)
+func Syscall(ntapi string, argh ...uintptr) (errcode uint32, err error) {
+
+	err = checkExports(true)
+	if err != nil {
+		return 0, err
+	}
+	callid, _, err := GetSyscallFromName(ntapi, &exports)
+	if err != nil {
+		return 0, fmt.Errorf("Failed to get syscall for %s %v\n", ntapi, err)
+	}
+
+	errcode = bpSyscall(uint16(callid), argh...)
 
 	if errcode != 0 {
 		err = fmt.Errorf("non-zero return from syscall")
@@ -48,13 +87,34 @@ func Syscall(callid uint16, argh ...uintptr) (errcode uint32, err error) {
 // Syscall calls the system function specified by callid with n arguments. Works much the same as syscall.Syscall - return value is the call error code and optional error text. All args are uintptrs to make it easy.
 func bpSyscall(callid uint16, argh ...uintptr) (errcode uint32)
 
-func GetSyscallNoFromName(function string, exports *[]Exportfunc) (byte, error) {
+func IndirectSyscall(ntapi string, argh ...uintptr) (errcode uint32, err error) {
+	err = checkExports(false)
+	if err != nil {
+		return 0, err
+	}
+
+	callid, tramboline, err := GetSyscallFromName(ntapi, &exports)
+	if err != nil {
+		return 0, fmt.Errorf("Failed to get syscall for %s %v\n", ntapi, err)
+	}
+
+	errcode = execIndirectSyscall(uint16(callid), tramboline, argh...)
+
+	if errcode != 0 {
+		err = fmt.Errorf("non-zero return from syscall")
+	}
+	return errcode, err
+}
+
+func execIndirectSyscall(callid uint16, tramboline uintptr, argh ...uintptr) (errcode uint32)
+
+func GetSyscallFromName(function string, exports *[]Exportfunc) (byte, uintptr, error) {
 	for _, exFunc := range *exports {
 		if function == exFunc.name {
-			return exFunc.syscallno, nil
+			return exFunc.syscallno, exFunc.tramboline, nil
 		}
 	}
-	return 0x0, fmt.Errorf("Unable to find Syscall Function")
+	return 0x0, 0, fmt.Errorf("Unable to find Syscall Function")
 }
 
 // Beta Version, This needs a lot of testing. I only tested this on win11 x64 and limited AVs
@@ -78,6 +138,27 @@ func UnhookSyscalls(exports *[]Exportfunc) error {
 	}
 	return nil
 }
+
+// Find address in ntdll with the following opcodes  "\x0F\x05\xC3" syscall;ret;
+/*func GetSyscallAddr(exports *[]Exportfunc) (uintptr, error) {
+	fAddress := (*exports)[1].funcRVA
+	baddr, err := GetBaseAddrOfLoadedDll("ntdll.dll")
+	if err != nil {
+		return 0, err
+	}
+
+	for {
+		if *(*byte)(unsafe.Pointer(baddr + uintptr(fAddress))) == 0x0F {
+			if *(*byte)(unsafe.Pointer(baddr + uintptr(fAddress+1))) == 0x05 {
+				if *(*byte)(unsafe.Pointer(baddr + uintptr(fAddress+2))) == 0xc3 {
+					return baddr + uintptr(fAddress), nil
+				}
+			}
+		}
+		fAddress += 1
+	}
+	return baddr + uintptr(fAddress), nil
+}*/
 
 func GetSyscallNumbers(exports *[]Exportfunc) error {
 	baddr, err := GetBaseAddrOfLoadedDll("ntdll.dll")
@@ -127,15 +208,30 @@ func GetModuleExports(name string) ([]Exportfunc, error) {
 		nameRVAbyte := (*[4]byte)(unsafe.Pointer(nameAddr))[:]
 		name := windows.BytePtrToString(&nameRVAbyte[0])
 
-		if strings.HasPrefix(name, "Nt") { // || strings.HasPrefix(name, "Zw") <= Might use this to compare /unhook the NT functions
-			funcSlice = append(funcSlice, Exportfunc{
-				funcRVA: funcRVA,
-				nameRVA: nameRVA,
-				name:    name,
-			})
+		var absAddress uintptr
+		absAddress = baddr + uintptr(funcRVA)
+		for j := 0; j < 100; j++ {
+			if *(*byte)(unsafe.Pointer(absAddress)) == 0x0f {
+				if *(*byte)(unsafe.Pointer(absAddress + 1)) == 0x05 {
+					if *(*byte)(unsafe.Pointer(absAddress + 2)) == 0xc3 {
+						break
+					}
+				}
+			}
+			absAddress += 1
 		}
 
-		//fmt.Printf("Func RVA: %x , nameRVA: %x , name: %s\n", funcRVA, nameRVA, name)
+		if strings.HasPrefix(name, "Nt") { // || strings.HasPrefix(name, "Zw") <= Might use this to compare /unhook the NT functions
+			funcSlice = append(funcSlice, Exportfunc{
+				funcRVA:    funcRVA,
+				nameRVA:    nameRVA,
+				name:       name,
+				tramboline: absAddress,
+			})
+			//fmt.Printf("Func RVA: %x , nameRVA: %x , name: %s, trambo: %x\n ", funcRVA, nameRVA, name, absAddress)
+
+		}
+
 	}
 	return funcSlice, nil
 }
