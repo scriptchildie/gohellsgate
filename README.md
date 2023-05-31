@@ -2,6 +2,8 @@
 
 A pure golang implementation of hellsgate. 
 
+This library allows for both direct and indrect syscalls in golang. 
+
 This is the best document out there to understand the technique https://github.com/am0nsec/HellsGate/blob/master/hells-gate.pdf
 
 Also this is a great resource https://github.com/C-Sto/BananaPhone. Stolen the bpSyscall function from this repo. This is a great way to avoid using VirtuallAlloc and CreateThread.
@@ -11,6 +13,11 @@ Also this is a great resource https://github.com/C-Sto/BananaPhone. Stolen the b
 It currently works only with Nt functions
 
 ## Usage
+```
+func gohellsgate.IndirectSyscall(ntapi string, argh ...uintptr) (errcode uint32, err error)
+func gohellsgate.Syscall(ntapi string, argh ...uintptr) (errcode uint32, err error)
+```
+
 I like to wrap the syscall function in its own function but you don't have to. This is my implementation of NtAllocateVirtualMemorySyscall
 
 
